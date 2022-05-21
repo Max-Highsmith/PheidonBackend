@@ -1,3 +1,4 @@
+import json
 import pdb
 import os
 import subprocess
@@ -10,9 +11,10 @@ PROTOCOL_PARAMS = "protocol.json"
 
 #Pheidon Parameters
 GARBAGE_GOOBER="addr_test1qzjn8jm4w3pdr8ut6r8082nke88lj77ydvyukmvrd7mxyj9ev5h025wjlsx7mj8hmx3zna8ycgjwq6sycuyp0yche3dqkjahhu"
-PHEIDON_CHEST="addr_test1vzj9r2xufz2dplq9j0tzfu8lxsszgq2dfm5ualdgwkgpr7sramg2d"
+PHEIDON_CHEST  ="addr_test1vzj9r2xufz2dplq9j0tzfu8lxsszgq2dfm5ualdgwkgpr7sramg2d"
 BUILDER_ADDRESS="addr_test1vzj9r2xufz2dplq9j0tzfu8lxsszgq2dfm5ualdgwkgpr7sramg2d"
 POSEIDON="addr_test1qrvum5l26caapku3hkpul20n6kytkpdrldy86h4k99rxwt9le0epmdexwccmh53lrwr5fw2fzzywmfnt5tkqulfdnzzqsdsf5v"
+DEMO_ADDRESS="addr_test1qpccvx9wr3ga72lgr5jgx0delppgde2nna2572jr4rks4af679pgwd9343wrw2ajffetvpfxshc5mq46zy5s0lq5rf9sy8wzdx"
 
 out = subprocess.check_output(['ls'])
 
@@ -78,7 +80,7 @@ def buildPolicy(tokenName):
     policy_script_file = open(policy_script, 'w')
     policy_script_file.write(policyStr)
     policy_script_file.close()
-    os.system("cardano-cli transaction policyid " \
+    os.system(CARDANO_CLI_PATH+" transaction policyid " \
             "--script-file "+policy_script +""\
             "> "+policy_id)
     policy_id_val = open(policy_id,'r').readlines()[0].split("\n")[0]
@@ -117,6 +119,97 @@ def submitTransaction(signed_transaction):
         ])
     os.system(submit)
 
+
+def buildMetaData(policyId,
+        nftName,
+        description,
+        mimeType="image/gif"):
+    metaFileName="metadata.json"
+    ipfs_hash="ipfs://QmUk3K4FdhjFiFRKA3V4z7XZWXgBKgXZJLZeqeiwJq7fjS"
+    meta_dict ={
+            "721":
+            {
+                policyId:
+                {
+                    nftName:{
+                        "description":description,
+                        "name":nftName,
+                        "image":ipfs_hash,
+                        "mediaType":mimeType,
+                        "x":1
+                        },
+                    nftName:{
+                        "description":description+"_2",
+                        "name":nftName+"_2",
+                        "image":ipfs_hash,
+                        "mediaType":mimeType,
+                        "x":2
+                        }
+                }
+            }
+        }
+    with open(metaFileName, 'w', encoding='utf-8') as f:
+        json.dump(meta_dict, f, ensure_ascii=False, indent=4)
+    return metaFileName 
+
+
+def buildNFT(
+        builderAddress,
+        receiveAddress,
+        nftName,
+        description,
+        tokenAmount=1,
+        mimeType="image/gif",
+        policyId=None,
+        policy_script=None,
+        policy_skey=None):
+    if policyId==None:
+        policyId, policy_script, policy_skey = buildPolicy(nftName)
+    metaDataFile = buildMetaData(policyId=policyId,
+            nftName=nftName,
+            description=description)
+    tokenCommand = "echo -n "+str(nftName)+" | xxd -ps -c 80 | tr -d '\n'"
+    tokenNameHex = os.popen(tokenCommand).read()
+    txHash, txix, funds = queryUTXOTop(builderAddress)
+    fee = 0
+    adaAmount = 1500000
+    returnAmount = int(funds) - adaAmount
+    command = ""
+    command += CARDANO_CLI_PATH+" transaction build-raw "
+    command += "--fee 0 "
+    command += "--tx-in "+txHash+"#"+txix+" "
+    command += "--tx-out "+receiveAddress+"+"+str(adaAmount)+"+\""
+    command += ""+str(tokenAmount)+" "+str(policyId)+"."+str(tokenNameHex)+"\" "
+    command += "--tx-out "+builderAddress+"+"+str(returnAmount)+" " 
+    command += "--mint=\""+str(tokenAmount)+" "+policyId+"."+tokenNameHex+"\" " 
+    command += "--minting-script-file "+policy_script +" " 
+    command += "--metadata-json-file "+metaDataFile+" "
+    command += "--out-file raw_mat.raw"
+    os.system(command)
+    fee = computeFee("raw_mat.raw")
+    returnAmount = int(funds) - (fee + adaAmount)
+    print(returnAmount)
+    print("funds:",
+        funds, "=", "adaAmount:",
+        adaAmount, "+ fee:", fee,
+        " + returnAmount:", returnAmount)
+    command = ""
+    command += CARDANO_CLI_PATH+" transaction build-raw "
+    command += "--fee "+str(fee)+" "
+    command += "--tx-in "+txHash+"#"+txix+" "
+    command += "--tx-out "+receiveAddress+"+"+str(adaAmount)+"+\""
+    command += ""+str(tokenAmount)+" "+str(policyId)+"."+str(tokenNameHex)+"\" "
+    command += "--tx-out "+builderAddress+"+"+str(returnAmount)+" " 
+    command += "--mint=\""+str(tokenAmount)+" "+policyId+"."+tokenNameHex+"\" " 
+    command += "--minting-script-file "+policy_script +" " 
+    command += "--metadata-json-file "+metaDataFile+" "
+    command += "--out-file raw_mat.raw"
+    os.system(command)
+    signedTransaction = signTransaction(policy_skey)
+    submitTransaction(signedTransaction)
+
+
+
 def buildToken(
         receiveAddress,
         tokenName,
@@ -126,10 +219,10 @@ def buildToken(
     tokenNameHex = os.popen(tokenCommand).read()
     txHash, txix, funds = queryUTXOTop(PHEIDON_CHEST)
     fee = 0
-    adaAmount = 2000000
+    adaAmount = 1500000
     returnAmount = int(funds) - adaAmount
     command = ""
-    command += "cardano-cli transaction build-raw "
+    command += CARDANO_CLI_PATH+" transaction build-raw "
     command += "--fee 0 "
     command += "--tx-in "+txHash+"#"+txix+" "
     command += "--tx-out "+receiveAddress+"+"+str(adaAmount)+"+\""
@@ -147,7 +240,7 @@ def buildToken(
         adaAmount, "+ fee:", fee,
         " + returnAmount:", returnAmount)
     command = ""
-    command += "cardano-cli transaction build-raw "
+    command += CARDANO_CLI_PATH+" transaction build-raw "
     command += "--fee "+str(fee)+" "
     command += "--tx-in "+txHash+"#"+txix+" "
     command += "--tx-out "+receiveAddress+"+"+str(adaAmount)+"+\""
@@ -160,11 +253,17 @@ def buildToken(
     signedTransaction = signTransaction(policy_skey)
     submitTransaction(signedTransaction)
 
-
     
 
 if __name__=="__main__":
-    buildToken(
-            receiveAddress=POSEIDON,
-            tokenName="Odin",
-            tokenAmount=3)
+    #buildToken(
+    #        receiveAddress=POSEIDON,
+    #        tokenName="WarTurtle",
+    #        tokenAmount=100)
+    buildNFT(
+        builderAddress=BUILDER_ADDRESS,
+        receiveAddress=POSEIDON,
+        nftName="Odin",
+        description="you know?, odin")   
+
+
