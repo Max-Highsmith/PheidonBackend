@@ -137,13 +137,6 @@ def buildMetaData(policyId,
                         "image":ipfs_hash,
                         "mediaType":mimeType,
                         "x":1
-                        },
-                    nftName:{
-                        "description":description+"_2",
-                        "name":nftName+"_2",
-                        "image":ipfs_hash,
-                        "mediaType":mimeType,
-                        "x":2
                         }
                 }
             }
